@@ -5,13 +5,14 @@ const { randomUUID } = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: {
+        origin: "*"
+    }
+});
 
 app.use(express.static('public'));
 
-// ─── THE WAITING QUEUE ───
-// null = nobody waiting
-// has a value = one person sitting, waiting for a match
 let waitingUser = null;
 
 io.on('connection', (socket) => {
@@ -19,19 +20,14 @@ io.on('connection', (socket) => {
     socket.data.name   = '';
     socket.data.roomId = null;
 
-    // ─── FIND A STRANGER ───
     socket.on('find_stranger', (name) => {
         socket.data.name   = name;
         socket.data.roomId = null;
 
-        // SITUATION 1: nobody is waiting
         if (waitingUser === null) {
             waitingUser = socket;
             socket.emit('waiting');
-        }
-
-        // SITUATION 2: someone is already waiting
-        else {
+        } else {
             const roomId = randomUUID();
 
             waitingUser.join(roomId);
@@ -47,7 +43,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // ─── MESSAGE ───
     socket.on('message', ({ roomId, text }) => {
         socket.to(roomId).emit('message', {
             text: text,
@@ -55,7 +50,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // ─── NEXT STRANGER ───
     socket.on('next_stranger', () => {
         const roomId = socket.data.roomId;
 
@@ -64,7 +58,6 @@ io.on('connection', (socket) => {
             socket.leave(roomId);
             socket.data.roomId = null;
 
-            // put them back in the queue
             if (waitingUser === null) {
                 waitingUser = socket;
                 socket.emit('waiting');
@@ -85,15 +78,11 @@ io.on('connection', (socket) => {
         }
     });
 
-    // ─── DISCONNECT ───
     socket.on('disconnect', () => {
-
-        // if the disconnected user was waiting, clear the queue
         if (waitingUser === socket) {
             waitingUser = null;
         }
 
-        // if they were in a room, notify their partner
         const roomId = socket.data.roomId;
         if (roomId) {
             socket.to(roomId).emit('partner_left');
@@ -102,6 +91,7 @@ io.on('connection', (socket) => {
 
 });
 
-server.listen(3000, () => {
-    console.log('Server running on http://localhost:3000');
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
